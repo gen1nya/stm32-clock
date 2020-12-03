@@ -18,13 +18,14 @@ void readFromRTC(void * args) {
 
 void print(void * args) {
   Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+  RTCDateTime now;
   
-  RTCDateTime _now;
-  
-  timeQueueHandler = xQueueCreate(1, sizeof _now);
+  timeQueueHandler = xQueueCreate(1, sizeof now);
   portTickType xLastWakeTime = xTaskGetTickCount();
   
   uint8_t pixel = 0;
+  uint8_t offset = 0;
+  bool direction = true;
 
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
   display.clearDisplay();
@@ -36,30 +37,28 @@ void print(void * args) {
   display.clearDisplay();
   
   vTaskDelay(1000 / portTICK_PERIOD_MS);
-  portBASE_TYPE senderTask = xTaskCreate(readFromRTC, "readFromRTC", 256, NULL, 1, NULL);
+  xTaskCreate(readFromRTC, "readFromRTC", 256, NULL, 1, NULL);
 
-  if (senderTask == pdTRUE) {
-    display.println("task ok");
-  } else {
-    display.println("error(");
-  }
-  
   display.display();
   
-  vTaskDelay(1000 / portTICK_PERIOD_MS);
+  vTaskDelay(100 / portTICK_PERIOD_MS);
   
   for(;;) {
     if (uxQueueMessagesWaiting(timeQueueHandler) != 0) {
-      xQueueReceive(timeQueueHandler, &_now, 0);
+      xQueueReceive(timeQueueHandler, &now, 0);
     }
-    display.clearDisplay();
-    display.setCursor(0,0);
-    display.printf("%02d:%02d:%02d", _now.hour, _now.minute, _now.second);
+ 
+    direction ? offset++ : offset--;
+    if (offset > 30) direction = false;
+    if (offset == 0) direction = true;
   
-    pixel++;
-    if (pixel >= 128) pixel = 0;
-
-    display.drawPixel(pixel, 31, WHITE);
+    display.clearDisplay();
+    display.setCursor(offset,0);
+    display.printf("%02d:%02d:%02d", now.hour, now.minute, now.second);
+  
+    if (pixel++ >= SCREEN_WIDTH) pixel = 0;
+      
+    display.drawPixel(pixel, SCREEN_HEIGHT - 1, WHITE);
     display.display();
 
     vTaskDelayUntil( &xLastWakeTime, ( 64 / portTICK_RATE_MS ) );
@@ -81,11 +80,11 @@ void setup() {
 
 void loop() { }
 
-volatile int state3 = LOW;
+volatile int ledState = LOW;
 
 void rtcInterrupt() {
   portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
   xSemaphoreGiveFromISR(rtcIntSemaphore, &xHigherPriorityTaskWoken);
-  state3 = !state3;
-  digitalWrite(LED_BUILTIN, state3);
+  ledState = !ledState;
+  digitalWrite(LED_BUILTIN, ledState);
 }
